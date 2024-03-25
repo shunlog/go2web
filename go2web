@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+import sys
 import socket
+import argparse
 import ssl
-from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urlencode
-from termcolor import cprint
 import webbrowser
+
+from bs4 import BeautifulSoup
+from termcolor import cprint
 
 from icecream import ic
 
@@ -66,7 +69,7 @@ class HTTPSocket:
         return content
 
     def request(self, url):
-        parsed_url = urlparse(url)
+        parsed_url = urlparse(url, scheme='http')
         path = parsed_url.path or '/'
         query_string = parsed_url.query
 
@@ -113,16 +116,15 @@ class HTTPSocket:
 
 
 
-def search(search_query):
+def search(search_query, limit=10):
     host = 'search.marginalia.nu'
     s = HTTPSocket(host)
     query = {'query': search_query}
     resp = s.request(f'https://search.marginalia.nu/search?{urlencode(query)}')
     soup = BeautifulSoup(resp, 'html.parser')
 
-    cards = soup.find(id="results").find_all(class_="card")
+    cards = soup.find(id="results").find_all(class_="card")[:limit]
     results = [(c.find('h2').get_text().strip(), c.find('a').get('href')) for c in cards]
-    ic(results)
 
     for i, (title, href) in enumerate(results):
         cprint(f"{i+1}. ", "cyan", end="")
@@ -140,15 +142,40 @@ def search(search_query):
 
 
 def browse(url):
-    parsed_url = urlparse(url)
+    if '://' not in url:
+        url = 'https://' + url
+
+    parsed_url = urlparse(url, scheme='http')
     host = parsed_url.hostname
     s = HTTPSocket(host)
     resp = s.request(url)
-    ic(resp)
     soup = BeautifulSoup(resp, 'html.parser')
 
     print(soup.get_text())
 
 
-search("computer science")
-# browse("https://docs.python.org/3/howto/curses.html")
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+                    prog='go2web',
+                    description='Access the web from your terminal.')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--url', '-u', help="Print web page to the terminal")
+    group.add_argument('--search', '-s', metavar='QUERY', help="Look up in a search engine")
+    parser.add_argument('--debug', '-d', action="store_true", help="Enable debug output")
+
+    args = parser.parse_args()
+
+    if len(sys.argv)==1:
+        parser.print_help()
+        sys.exit()
+
+    if not args.debug:
+        ic.disable()
+
+    if args.search:
+        search(args.search)
+        sys.exit()
+
+    if args.url:
+        browse(args.url)
+        sys.exit()
