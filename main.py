@@ -2,6 +2,7 @@
 import socket
 import ssl
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 from icecream import ic
 
@@ -21,9 +22,53 @@ class HTTPSocket:
 
         self.sock.connect((host, 443))
 
+    def _get_remaining_bytes(self, data, content_len):
+        '''Once you have received all the headers,
+        you will either know the length of the content by the Content-Length,
+        or it will be chunked.
+        This method takes the partial data received after the headers, and fetches the rest.'''
+        while len(data) < content_len:
+            sz = min(self.BLOCK_SZ, content_len - len(data))
+            chunk = self.sock.recv(sz)
+            if chunk == b'':
+                raise RuntimeError("socket connection broken")
+            data += chunk
+        return data
 
-    def request(self):
-        request = "GET / HTTP/1.1\r\nHost: {}\r\n\r\n".format(self.host)
+    def _get_remaining_bytes_chunked(self, data):
+        '''This method takes the partial data received after the headers,
+        and fetches the rest, considering the content is chunked.'''
+        content = b''
+
+        # assuming we've recv'd at least the first chunk length already
+        while True:
+            crlf = data.find(b'\r\n')
+            if crlf == -1:
+                break
+
+            num_str = data[:crlf]
+            chunk_len = int(num_str, 16)
+            data = data[crlf+2:]
+
+            if chunk_len == 0:
+                break
+
+            while chunk_len+2+3 > len(data):  # 2 for \r\f, 3 for the potential \0\r\f
+                chunk = self.sock.recv(self.BLOCK_SZ)
+                if chunk == b'':
+                    raise RuntimeError("socket connection broken")
+                data += chunk
+
+            content += data[:chunk_len]
+            data = data[chunk_len+2:]
+        return content
+
+    def request(self, url):
+        parsed_url = urlparse(url)
+        path = parsed_url.path or '/'
+        query_string = parsed_url.query
+
+        request = f"GET {path}?{query_string} HTTP/1.1\r\nHost: {self.host}\r\n\r\n"
         self.sock.sendall(request.encode())
 
         data = b''
@@ -40,6 +85,8 @@ class HTTPSocket:
 
         end = data.find(b'\r\n\r\n')
         headers = [l.split(maxsplit=1) for l in data[:end].split(b'\r\n')]
+        ic(headers)
+        data = data[end+4:]
 
         chunked = False
         content_len = -1
@@ -52,53 +99,24 @@ class HTTPSocket:
                 raise RuntimeError("No 'Content-Length' in the HTTP response, and not chunked.")
             chunked = True
 
+        content = self._get_remaining_bytes_chunked(data) if chunked\
+            else self._get_remaining_bytes(data, content_len)
+
         charset = 'utf-8'
         for name, val in headers:
             if name == b'Content-Type:' and b'charset' in val:
                 charset = val[val.find(b'charset=')+len('charset='):].decode()
                 break
-
-
-        if chunked:
-            buf = data[end+4:]
-            content = b''
-
-            # assuming we've recv'd at least the first chunk length already
-            while True:
-                crlf = buf.find(b'\r\n')
-                if crlf == -1:
-                    break
-
-                num_str = buf[:crlf]
-                chunk_len = int(num_str, 16)
-                buf = buf[crlf+2:]
-
-                if chunk_len == 0:
-                    break
-
-                while chunk_len+2+3 > len(buf):
-                    chunk = self.sock.recv(self.BLOCK_SZ)
-                    if chunk == b'':
-                        raise RuntimeError("socket connection broken")
-                    buf += chunk
-
-                content += buf[:chunk_len]
-                buf = buf[chunk_len+2:]
-
-        else:
-            content = data[end+4:]
-            while len(content) < content_len:
-                sz = min(self.BLOCK_SZ, content_len - len(content))
-                chunk = self.sock.recv(sz)
-                if chunk == b'':
-                    raise RuntimeError("socket connection broken")
-                content += chunk
-
         return content.decode(charset)
 
 
-s = HTTPSocket('search.marginalia.nu')
-resp = s.request()
-soup = BeautifulSoup(resp, 'html.parser')
 
+# host = 'marginalia.nu'   # redirect
+# host = 'example.com'
+
+host = 'search.marginalia.nu'
+s = HTTPSocket(host)
+resp = s.request('https://search.marginalia.nu/search?query=art')
+
+soup = BeautifulSoup(resp, 'html.parser')
 print(soup.get_text())
