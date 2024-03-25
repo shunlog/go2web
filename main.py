@@ -2,7 +2,9 @@
 import socket
 import ssl
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
+from termcolor import cprint
+import webbrowser
 
 from icecream import ic
 
@@ -111,12 +113,42 @@ class HTTPSocket:
 
 
 
-# host = 'marginalia.nu'   # redirect
-# host = 'example.com'
+def search(search_query):
+    host = 'search.marginalia.nu'
+    s = HTTPSocket(host)
+    query = {'query': search_query}
+    resp = s.request(f'https://search.marginalia.nu/search?{urlencode(query)}')
+    soup = BeautifulSoup(resp, 'html.parser')
 
-host = 'search.marginalia.nu'
-s = HTTPSocket(host)
-resp = s.request('https://search.marginalia.nu/search?query=art')
+    cards = soup.find(id="results").find_all(class_="card")
+    results = [(c.find('h2').get_text().strip(), c.find('a').get('href')) for c in cards]
+    ic(results)
 
-soup = BeautifulSoup(resp, 'html.parser')
-print(soup.get_text())
+    for i, (title, href) in enumerate(results):
+        cprint(f"{i+1}. ", "cyan", end="")
+        cprint(title, "light_green")
+        cprint(href, "dark_grey")
+        print()
+
+    chosen_id = int(input("Pick a link (e.g. 4): ")) - 1
+    url = results[chosen_id][1]
+
+    if input("Do you want to open it in your browser? [Y/n]: ") in ["", "Y", 'y']:
+        webbrowser.open(url)
+    else:
+        browse(url)
+
+
+def browse(url):
+    parsed_url = urlparse(url)
+    host = parsed_url.hostname
+    s = HTTPSocket(host)
+    resp = s.request(url)
+    ic(resp)
+    soup = BeautifulSoup(resp, 'html.parser')
+
+    print(soup.get_text())
+
+
+search("computer science")
+# browse("https://docs.python.org/3/howto/curses.html")
