@@ -98,15 +98,15 @@ class HTTPSocket:
             k, *v = l.split(b": ", maxsplit=1)
             k = k.lower()
             v = v[0] if v else b""
-            headers[k] = v
+            headers[k.decode()] = v.decode()
 
         ic(headers)
         data = data[end+4:]
 
         chunked = False
-        content_len = int(headers.get(b'content-length', -1))
+        content_len = int(headers.get('content-length', -1))
         if content_len == -1:
-            if headers.get(b'transfer-encoding') != b'chunked':
+            if headers.get('transfer-encoding') != 'chunked':
                 raise RuntimeError("No 'Content-Length' in the HTTP response, and not chunked.")
             chunked = True
 
@@ -114,10 +114,10 @@ class HTTPSocket:
             else self._get_remaining_bytes(data, content_len)
 
         charset = 'utf-8'
-        for name, val in headers.items():
-            if name == b'content-type' and b'charset' in val:
-                charset = val[val.find(b'charset=')+len('charset='):].decode()
-                break
+        val = headers.get('content-type')
+        if val and 'charset' in val:
+            charset = val[val.find('charset=')+len('charset='):]
+
         return content.decode(charset), headers
 
 
@@ -156,7 +156,7 @@ def browse(url):
     s = HTTPSocket(host)
     resp, headers = s.request(url)
 
-    if headers.get(b'content-type') == b'application/json':
+    if headers.get('content-type') == 'application/json':
         print(json.dumps(json.loads(resp), sort_keys=True, indent=4))
         return
 
