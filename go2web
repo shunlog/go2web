@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import sys
+import re
 import socket
 import argparse
 import ssl
 from urllib.parse import urlparse, urlencode
 import webbrowser
 
+from markdownify import markdownify
 from bs4 import BeautifulSoup
 from termcolor import cprint
 
@@ -152,9 +154,10 @@ def browse(url):
     host = parsed_url.hostname
     s = HTTPSocket(host)
     resp = s.request(url)
-    soup = BeautifulSoup(resp, 'html.parser')
 
-    print(soup.get_text())
+    md_text = markdownify(resp).replace('\n\n', '\n')
+    md_text = re.sub(r'\n\s*\n', '\n\n', md_text)  # join empty lines
+    print(md_text)
 
 
 if __name__ == '__main__':
