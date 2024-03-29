@@ -89,18 +89,21 @@ class HTTPSocket:
                 break
 
         end = data.find(b'\r\n\r\n')
-        headers = [l.split(maxsplit=1) for l in data[:end].split(b'\r\n')]
+
+        headers = {}
+        for l in data[:end].split(b'\r\n'):
+            k, *v = l.split(b": ", maxsplit=1)
+            k = k.lower()
+            v = v[0] if v else b""
+            headers[k] = v
+
         ic(headers)
         data = data[end+4:]
 
         chunked = False
-        content_len = -1
-        for name, val in headers:
-            if name == b'Content-Length:':
-                content_len = int(val.decode())
-                break
-        else:
-            if not [b'Transfer-Encoding:', b'chunked'] in headers:
+        content_len = int(headers.get(b'content-length', -1))
+        if content_len == -1:
+            if headers.get(b'transfer-encoding') != b'chunked':
                 raise RuntimeError("No 'Content-Length' in the HTTP response, and not chunked.")
             chunked = True
 
@@ -108,8 +111,8 @@ class HTTPSocket:
             else self._get_remaining_bytes(data, content_len)
 
         charset = 'utf-8'
-        for name, val in headers:
-            if name == b'Content-Type:' and b'charset' in val:
+        for name, val in headers.items():
+            if name == b'content-type' and b'charset' in val:
                 charset = val[val.find(b'charset=')+len('charset='):].decode()
                 break
         return content.decode(charset)
