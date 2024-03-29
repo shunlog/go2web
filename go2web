@@ -2,6 +2,7 @@
 import sys
 import re
 import socket
+import json
 import argparse
 import ssl
 from urllib.parse import urlparse, urlencode
@@ -117,7 +118,7 @@ class HTTPSocket:
             if name == b'content-type' and b'charset' in val:
                 charset = val[val.find(b'charset=')+len('charset='):].decode()
                 break
-        return content.decode(charset)
+        return content.decode(charset), headers
 
 
 
@@ -125,7 +126,7 @@ def search(search_query, limit=10):
     host = 'search.marginalia.nu'
     s = HTTPSocket(host)
     query = {'query': search_query}
-    resp = s.request(f'https://search.marginalia.nu/search?{urlencode(query)}')
+    resp, headers = s.request(f'https://search.marginalia.nu/search?{urlencode(query)}')
     soup = BeautifulSoup(resp, 'html.parser')
 
     cards = soup.find(id="results").find_all(class_="card")[:limit]
@@ -153,11 +154,16 @@ def browse(url):
     parsed_url = urlparse(url, scheme='http')
     host = parsed_url.hostname
     s = HTTPSocket(host)
-    resp = s.request(url)
+    resp, headers = s.request(url)
+
+    if headers.get(b'content-type') == b'application/json':
+        print(json.dumps(json.loads(resp), sort_keys=True, indent=4))
+        return
 
     md_text = markdownify(resp).replace('\n\n', '\n')
     md_text = re.sub(r'\n\s*\n', '\n\n', md_text)  # join empty lines
     print(md_text)
+
 
 
 if __name__ == '__main__':
