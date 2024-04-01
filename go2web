@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+import os
 import sys
 import re
 import socket
 import json
 import argparse
 import ssl
+import hashlib
+import datetime
 from urllib.parse import urlparse, urlencode
 import webbrowser
 
@@ -13,6 +16,8 @@ from bs4 import BeautifulSoup
 from termcolor import cprint
 
 from icecream import ic
+
+CACHE_PATH = "./cache/"
 
 class HTTPSocket:
     '''
@@ -71,7 +76,46 @@ class HTTPSocket:
             data = data[chunk_len+2:]
         return content
 
+    def _retrieve_from_cache(self, url):
+        path = self._get_url_cache_path(url)
+        if not os.path.exists(path):
+            return None
+
+        # check if cache is too old
+        ts = os.path.getmtime(path)
+        last_mod_time = datetime.datetime.fromtimestamp(ts)
+        time_diff = datetime.datetime.now() - last_mod_time
+        if time_diff.days > 7:
+            return None
+
+        with open(path, 'r') as f:
+            json_str = f.read()
+        js_obj = json.JSONDecoder().decode(json_str)
+        response, headers = js_obj['response'], js_obj['headers']
+        return response, headers
+
+
+    def _get_url_cache_path(self, url):
+        fn = hashlib.sha256(url.encode()).hexdigest() + '.json'
+        path = CACHE_PATH + fn
+        return path
+
+    def _store_in_cache(self, url, response, headers):
+        if not os.path.exists(CACHE_PATH):
+            os.makedirs(CACHE_PATH)
+
+        obj = {"response": response, "headers": headers}
+        json_str = json.JSONEncoder().encode(obj)
+        path = self._get_url_cache_path(url)
+        with open(path, 'w') as f:
+            f.write(json_str)
+        return
+
+
     def request(self, url):
+        if (ret := self._retrieve_from_cache(url)) is not None:
+            return ret
+
         parsed_url = urlparse(url, scheme='http')
         path = parsed_url.path or '/'
         query_string = parsed_url.query
@@ -117,8 +161,11 @@ class HTTPSocket:
         val = headers.get('content-type')
         if val and 'charset' in val:
             charset = val[val.find('charset=')+len('charset='):]
+        response = content.decode(charset)
 
-        return content.decode(charset), headers
+        self._store_in_cache(url, response, headers)
+
+        return response, headers
 
 
 
