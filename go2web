@@ -91,8 +91,8 @@ class HTTPSocket:
         with open(path, 'r') as f:
             json_str = f.read()
         js_obj = json.JSONDecoder().decode(json_str)
-        response, headers = js_obj['response'], js_obj['headers']
-        return response, headers
+        response, headers, status = js_obj['response'], js_obj['headers'], js_obj['status']
+        return response, headers, status
 
 
     def _get_url_cache_path(self, url):
@@ -100,11 +100,11 @@ class HTTPSocket:
         path = CACHE_PATH + fn
         return path
 
-    def _store_in_cache(self, url, response, headers):
+    def _store_in_cache(self, url, response, headers, status):
         if not os.path.exists(CACHE_PATH):
             os.makedirs(CACHE_PATH)
 
-        obj = {"response": response, "headers": headers}
+        obj = {"response": response, "headers": headers, "status": status}
         json_str = json.JSONEncoder().encode(obj)
         path = self._get_url_cache_path(url)
         with open(path, 'w') as f:
@@ -125,6 +125,8 @@ class HTTPSocket:
 
         data = b''
         bytes_recd = 0
+        # retrieve status line
+
         # receive the entire headers
         while True:
             chunk = self.sock.recv(self.BLOCK_SZ)
@@ -134,6 +136,11 @@ class HTTPSocket:
             bytes_recd = bytes_recd + len(chunk)
             if b'\r\n\r\n' in chunk:  # Check for end of headers
                 break
+
+        i = data.find(b'\r\n')
+        status = data[:i].decode().split(maxsplit=2)
+        data = data[i+2:]
+        ic(status)
 
         end = data.find(b'\r\n\r\n')
 
@@ -163,9 +170,9 @@ class HTTPSocket:
             charset = val[val.find('charset=')+len('charset='):]
         response = content.decode(charset)
 
-        self._store_in_cache(url, response, headers)
+        self._store_in_cache(url, response, headers, status)
 
-        return response, headers
+        return response, headers, status
 
 
 
@@ -198,10 +205,17 @@ def browse(url):
     if '://' not in url:
         url = 'https://' + url
 
-    parsed_url = urlparse(url, scheme='http')
-    host = parsed_url.hostname
-    s = HTTPSocket(host)
-    resp, headers = s.request(url)
+    while True:
+        ic(url)
+        parsed_url = urlparse(url, scheme='http')
+        host = parsed_url.hostname
+        s = HTTPSocket(host)
+        resp, headers, status = s.request(url)
+
+        if status[1][0] == '3':
+            url = headers['location']
+        else:
+            break
 
     if headers.get('content-type') == 'application/json':
         print(json.dumps(json.loads(resp), sort_keys=True, indent=4))
